@@ -65,6 +65,7 @@ a.btn{display:inline-block;text-decoration:none}
     <button class="btn ghost" id="logoutBtn" style="color:var(--ink)" hidden>Log out</button>
   </div>
   <div class="panel hide" id="loginPanel" style="margin-bottom:16px">
+    <p class="meta" style="margin-top:0">Admins must be signed in with an approved school account first.</p>
     <label>Admin password <input id="pw" type="password" autocomplete="off"></label>
     <button class="btn" id="pwGo">Log in</button>
   </div>
@@ -78,6 +79,7 @@ a.btn{display:inline-block;text-decoration:none}
     <button role="tab" data-tab="mine" aria-selected="false">My books</button>
     <button role="tab" id="addTab" class="hide" data-tab="add" aria-selected="false">Add a book</button>
     <button role="tab" id="retTab" class="hide" data-tab="ret" aria-selected="false">Returning books</button>
+    <button role="tab" id="admTab" class="hide" data-tab="adm" aria-selected="false">Admin accounts</button>
     <button role="tab" id="resTab" class="hide" data-tab="res" aria-selected="false">Reservations and books out <span id="count"></span></button>
   </nav>
 
@@ -117,6 +119,15 @@ a.btn{display:inline-block;text-decoration:none}
     <div id="retList"></div>
   </section>
 
+  <section id="adm" class="hide">
+    <div class="panel" style="margin-bottom:16px">
+      <p class="meta" style="margin-top:0">Only accounts on this list can use the admin password. Only you, as the owner, can change the list.</p>
+      <label>School email to allow <input id="admEmail" type="email" placeholder="name@wbhs.org.za"></label>
+      <button class="btn" id="admAdd">Allow this account</button>
+    </div>
+    <div id="admList"></div>
+  </section>
+
   <section id="res" class="hide"><div id="list"></div></section>
 
 </div>
@@ -126,7 +137,7 @@ a.btn{display:inline-block;text-decoration:none}
 <script>
 var SB_URL="https://frprizkgmfzenmtosxrr.supabase.co",SB_KEY="sb_publishable_YXK-E8VLjhGZJQiXJcPUkw_zGj2a53q";
 var sb=supabase.createClient(SB_URL,SB_KEY);
-var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,loaded:false};
+var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,loaded:false,isOwner:false,admins:[]};
 var adminPw="";
 async function rpc(n,a){var r=await sb.rpc(n,a||{});if(r.error)throw new Error(r.error.message);return r.data}
 async function act(n,a,ok){try{var d=await rpc(n,a);await refresh();if(ok)toast(ok);return {data:d}}catch(e){toast(e.message);return null}}
@@ -143,7 +154,7 @@ async function refresh(){
     var res=d.res.map(mapRes),waits=d.waits.map(mapWait);
     if(admin){
       var a=await rpc("admin_all",{p_pw:adminPw});
-      res=a.res.map(mapRes);waits=a.waits.map(mapWait);
+      res=a.res.map(mapRes);waits=a.waits.map(mapWait);state.isOwner=!!a.owner;state.admins=a.admins||[];
     }else if(me){
       var o=await sb.from("reservations").select("*"),w=await sb.from("waits").select("*"),p=await sb.from("points").select("pts").maybeSingle();
       var own={},ow={};
@@ -200,7 +211,7 @@ function setAdmin(on){
   $("adminState").className=on?"meta":"hide meta";
   $("logoutBtn").hidden=!on;
   $("loginPanel").className="panel hide";$("pw").value="";
-  if(!on){adminPw="";document.querySelector('[data-tab="catalog"]').click();gate();refresh()}
+  if(!on){adminPw="";state.isOwner=false;state.admins=[];document.querySelector('[data-tab="catalog"]').click();gate();refresh()}
   render();
 }
 function save(){}
@@ -313,6 +324,8 @@ function render(){
     '<h2 class="h2">Due in the next 2 days ('+dues.length+')</h2>'+(dues.length?dues.map(rem).join(""):'<p class="empty">Nothing due soon.</p>')+
     '<h2 class="h2">Coming at 2nd break ('+keys.length+(keys.length===1?' person':' people')+')</h2>'+(keys.length?keys.map(function(k){return person(people[k])}).join(""):'<p class="empty">Nobody has a reservation to collect.</p>')+
     '<h2 class="h2">Out now ('+outs.length+')</h2>'+(outs.length?outs.map(row).join(""):'<p class="empty">No books are out.</p>')):'';
+  $("admTab").className=(admin&&state.isOwner)?"":"hide";
+  $("admList").innerHTML=(admin&&state.isOwner)?'<h2 class="h2">Accounts allowed to be admins ('+state.admins.length+')</h2>'+state.admins.map(function(a){return '<div class="res"><div><strong>'+esc(a.email)+'</strong>'+(a.is_owner?' <span class="meta">(owner, cannot be removed)</span>':'')+'</div>'+(a.is_owner?'':'<button class="btn ghost" data-admrm="'+encodeURIComponent(a.email)+'">Remove access</button>')+'</div>'}).join(""):'';
   renderMine();
 }
 
@@ -320,7 +333,7 @@ document.addEventListener("click",async function(e){
   var t=e.target;
   if(t.dataset.tab){
     document.querySelectorAll("nav button").forEach(function(b){b.setAttribute("aria-selected",b===t)});
-    ["catalog","mine","add","ret","res"].forEach(function(id){$(id).className=id===t.dataset.tab?"":"hide"});
+    ["catalog","mine","add","ret","adm","res"].forEach(function(id){$(id).className=id===t.dataset.tab?"":"hide"});
     if(t.dataset.tab==="ret")$("retNum").focus();
     if(t.dataset.tab==="add"&&!$("num").value)$("num").value=nextNum();
   }
@@ -352,6 +365,10 @@ document.addEventListener("click",async function(e){
       setTimeout(function(){if(t.isConnected){delete t.dataset.armed;t.textContent="Remove book"}},4000);
     }
   }
+  if(t.dataset.admrm&&admin){
+    if(t.dataset.armed){await act("owner_remove_admin",{p_pw:adminPw,p_email:decodeURIComponent(t.dataset.admrm)},"Access removed")}
+    else{t.dataset.armed="1";t.textContent="Confirm: remove access";setTimeout(function(){if(t.isConnected){delete t.dataset.armed;t.textContent="Remove access"}},4000)}
+  }
   if(t.dataset.mycancel&&me){await act("cancel_mine",{p_id:+t.dataset.mycancel},"Reservation cancelled")}
   if(t.dataset.cancel&&admin){await act("admin_cancel",{p_pw:adminPw,p_id:+t.dataset.cancel},"Reservation cancelled")}
 });
@@ -375,12 +392,24 @@ $("outBtn").addEventListener("click",function(){sb.auth.signOut()});
 function gate(){if((/admin/.test(location.hash)||/[?&]admin/.test(location.search))&&!admin){$("loginPanel").className="panel"}}
 window.addEventListener("hashchange",gate);
 $("logoutBtn").addEventListener("click",function(){setAdmin(false);toast("Logged out")});
+var loginBusy=false;
+var checking=false;
 async function tryLogin(){
-  var pw=$("pw").value;
-  try{await rpc("admin_all",{p_pw:pw});adminPw=pw;setAdmin(true);await refresh();toast("Admin mode on")}
-  catch(e){if(/password/i.test(e.message)){toast("Incorrect password");$("pw").select()}else toast("Could not reach the server")}
+  if(checking)return;
+  if(!me){toast("Sign in with your school email first, then enter the admin password");return}
+  var pw=$("pw").value,btn=$("pwGo");
+  checking=true;btn.disabled=true;btn.textContent="Checking...";
+  var pause=new Promise(function(r){setTimeout(r,5000)}),res;
+  try{await rpc("admin_all",{p_pw:pw});res="ok"}
+  catch(e){res=/password|admin account/i.test(e.message)?"bad":"net"}
+  await pause;
+  checking=false;btn.disabled=false;btn.textContent="Log in";
+  if(res==="ok"){adminPw=pw;setAdmin(true);await refresh();toast("Correct. Admin mode on")}
+  else if(res==="net")toast("Could not reach the server")
+  else{toast("Incorrect password, or this account is not allowed to be an admin");$("pw").select()}
 }
 $("pwGo").addEventListener("click",tryLogin);
+$("admAdd").addEventListener("click",async function(){var em=$("admEmail").value.trim().toLowerCase();if(!em||!admin)return;var r=await act("owner_add_admin",{p_pw:adminPw,p_email:em},"Account allowed");if(r)$("admEmail").value=""});
 $("pw").addEventListener("keydown",function(e){if(e.key==="Enter")tryLogin()});
 $("addBtn").addEventListener("click",function(){
   if(!admin){toast("Admins only");return}
@@ -400,6 +429,7 @@ sb.auth.onAuthStateChange(function(ev,sess){
   try{nm=localStorage.getItem("shelf-name")||""}catch(e){}
   me=u&&u.email?{name:nm||(u.user_metadata&&u.user_metadata.name)||u.email.split("@")[0],email:u.email.toLowerCase()}:null;
   if(me)$("inMsg").textContent="";
+  if(!me&&admin)setAdmin(false);
   renderMe();setTimeout(refresh,0);
 });
 setInterval(refresh,60000);document.addEventListener("visibilitychange",function(){if(!document.hidden)refresh()});
