@@ -74,7 +74,7 @@ a.btn{display:inline-block;text-decoration:none}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input id="inName" class="hide" placeholder="Your name" aria-label="Your name" autocomplete="name" style="flex:1 1 140px"><input id="inEmail" type="email" placeholder="supersecuregmail@china.uk" aria-label="School email" autocomplete="email" style="flex:2 1 200px"><input id="inPw" type="password" placeholder="Password" aria-label="Password" autocomplete="current-password" style="flex:1 1 140px"><input id="inPw2" class="hide" type="password" placeholder="Repeat password" aria-label="Repeat password" autocomplete="new-password" style="flex:1 1 140px"><button class="btn" id="inGo">Log in</button></div>
       <div style="margin-top:8px"><button class="btn ghost" id="inMode" style="color:var(--ink)">First time? Create a password</button> <button class="btn ghost" id="inForgot" style="color:var(--ink)">Forgot password</button></div>
       <div id="inMsg" class="meta" style="margin-top:8px"></div></div>
-    <div id="pwReset" class="hide"><strong>Choose a new password</strong> <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input id="npw" type="password" placeholder="New password (at least 8 characters)" aria-label="New password" autocomplete="new-password" style="flex:1 1 220px"><button class="btn" id="npGo">Save password</button></div></div>
+    <div id="pwReset" class="hide"><strong>Choose a new password</strong> <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input id="npw" type="password" placeholder="New password (at least 12 characters)" aria-label="New password" autocomplete="new-password" style="flex:1 1 220px"><button class="btn" id="npGo">Save password</button></div></div>
     <div id="inDone" class="hide"><span id="inWho"></span> <button class="btn ghost" id="outBtn" style="color:var(--ink);margin-left:8px">Sign out</button></div>
   </div>
   <nav role="tablist">
@@ -514,7 +514,7 @@ async function signIn(){
     return}
   var n=$("inName").value.trim();
   if(!n){toast("Enter your name");$("inName").focus();return}
-  if(pw.length<8){toast("Your password must be at least 8 characters");$("inPw").focus();return}
+  if(pw.length<8){toast("Your password must be at least 12 characters");$("inPw").focus();return}
   if(pw!==$("inPw2").value){toast("The two passwords do not match");$("inPw2").focus();return}
   try{localStorage.setItem("shelf-name",n)}catch(e){}
   var r=await sb.auth.signUp({email:em,password:pw,options:{emailRedirectTo:location.origin+location.pathname,data:{name:n}}});
@@ -536,7 +536,7 @@ $("inMode").addEventListener("click",function(){setMode(!createMode)});
 $("inForgot").addEventListener("click",forgot);
 ["inEmail","inPw","inPw2","inName"].forEach(function(id){$(id).addEventListener("keydown",function(e){if(e.key==="Enter")signIn()})});
 $("npGo").addEventListener("click",async function(){
-  var np=$("npw").value;if(np.length<8){toast("Your password must be at least 8 characters");return}
+  var np=$("npw").value;if(np.length<8){toast("Your password must be at least 12 characters");return}
   var r=await sb.auth.updateUser({password:np});
   if(r.error){toast(r.error.message);return}
   $("npw").value="";$("pwReset").className="hide";markPw();toast("Password saved")
