@@ -59,7 +59,7 @@ a.btn{display:inline-block;text-decoration:none}
 <body>
 <div class="wrap">
   <h1>Shelf</h1>
-  <p class="sub">Browse the collection and reserve up to 3 books. When you reserve a book you choose a pick-up day and time this week (Monday to Thursday, 10:35 am or 1:05 pm). The return date counts from your pick-up day.</p>
+  <p class="sub">Browse the collection and reserve up to 3 books. When you reserve a book you choose a pick-up day and time this week (Monday to Thursday, 10:35 am or 1:05 pm) and whether you want it for 1 or 2 weeks. It is due back after that time or by the next term deadline (21 March, 21 June, 17 September or 15 November), whichever comes first. Reservations are closed during school holidays.</p>
   <div class="adminbar">
     <span id="adminState" class="hide meta">Admin mode on</span>
     <button class="btn ghost" id="logoutBtn" style="color:var(--ink)" hidden>Log out</button>
@@ -82,7 +82,8 @@ a.btn{display:inline-block;text-decoration:none}
     <button role="tab" data-tab="mine" aria-selected="false">My books</button>
     <button role="tab" id="donTab" data-tab="don" aria-selected="false">Donate a book</button>
     <button role="tab" id="donAdmTab" class="hide" data-tab="dadm" aria-selected="false">Donations <span id="donCount"></span></button>
-    <button role="tab" id="scTab" data-tab="sc" aria-selected="false">Library Points</button>
+    <button role="tab" id="stTab" data-tab="st" aria-selected="false">Book stats</button>
+    <button role="tab" id="scTab" data-tab="sc" aria-selected="false">Scores</button>
     <button role="tab" id="addTab" class="hide" data-tab="add" aria-selected="false">Add a book</button>
     <button role="tab" id="retTab" class="hide" data-tab="ret" aria-selected="false">Returning books</button>
     <button role="tab" id="admTab" class="hide" data-tab="adm" aria-selected="false">Admin accounts</button>
@@ -127,7 +128,9 @@ a.btn{display:inline-block;text-decoration:none}
 
   <section id="dadm" class="hide"><div id="dadmList"></div></section>
 
-  <div id="pickModal" class="modal hide" role="dialog" aria-modal="true" aria-labelledby="pmT"><div class="panel" style="width:100%;max-width:440px"><h2 id="pmT" class="h2" style="margin-top:0">When will you pick it up?</h2><p id="pmBook" class="meta"></p><label>Day <select id="pkd"></select></label><label>Time <select id="pkt"></select></label><div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="pkOk">Reserve</button><button class="btn ghost" id="pkNo" style="color:var(--ink)">Cancel</button></div></div></div>
+  <div id="pickModal" class="modal hide" role="dialog" aria-modal="true" aria-labelledby="pmT"><div class="panel" style="width:100%;max-width:440px"><h2 id="pmT" class="h2" style="margin-top:0">When will you pick it up?</h2><p id="pmBook" class="meta"></p><label>Day <select id="pkd"></select></label><label>Time <select id="pkt"></select></label><label>Borrow for <select id="pkw"><option value="1">1 week</option><option value="2" selected>2 weeks</option></select></label><p id="pkDue" class="meta"></p><div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="pkOk">Reserve</button><button class="btn ghost" id="pkNo" style="color:var(--ink)">Cancel</button></div></div></div>
+
+  <section id="st" class="hide"><div id="stList"></div></section>
 
   <section id="sc" class="hide"><div id="scList"></div></section>
 
@@ -163,7 +166,7 @@ a.btn{display:inline-block;text-decoration:none}
 <script>
 var SB_URL="https://frprizkgmfzenmtosxrr.supabase.co",SB_KEY="sb_publishable_YXK-E8VLjhGZJQiXJcPUkw_zGj2a53q";
 var sb=supabase.createClient(SB_URL,SB_KEY);
-var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,cond:{},donations:[],scores:[],pub:[],pickups:[],loaded:false,isOwner:false,admins:[]};
+var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,cond:{},donations:[],stats:null,scores:[],pub:[],pickups:[],loaded:false,isOwner:false,admins:[]};
 var adminPw="";
 async function rpc(n,a){var r=await sb.rpc(n,a||{});if(r.error)throw new Error(r.error.message);return r.data}
 async function act(n,a,ok){try{var d=await rpc(n,a);await refresh();if(ok)toast(ok);return {data:d}}catch(e){toast(e.message);return null}}
@@ -196,6 +199,7 @@ async function refresh(){
   try{state.pickups=admin?await rpc("admin_pickups",{p_pw:adminPw}):(me?await rpc("my_pickups"):[])||[]}catch(e){state.pickups=[]}
   try{state.donations=admin?await rpc("admin_donations",{p_pw:adminPw}):(me?await rpc("my_donations"):[])||[]}catch(e){state.donations=[]}
   try{if(admin){state.scores=await rpc("admin_scores",{p_pw:adminPw})}else{state.pub=await rpc("all_scores")||[]}}catch(e){state.scores=[];state.pub=[]}
+  try{state.stats=await rpc("top_reserved_this_year")||[]}catch(e){state.stats=null}
   }catch(e){toast("Can't reach the library server. Check your internet.")}
   busy=false;render();
   if(again){again=false;await refresh()}
@@ -234,19 +238,35 @@ function slotKey(day,slot){var i=DAYS.indexOf(day),m=/(\d+):(\d+)\s*(am|pm)/i.ex
 function pickOf(r){var l=state.pickups||[];for(var i=0;i<l.length;i++){if(String(l[i].book_id)===String(r.bookId)&&(!l[i].email||!r.email||l[i].email.toLowerCase()===r.email.toLowerCase()))return l[i]}return null}
 function pk(r){var q=pickOf(r);return q?slotKey(q.day,q.slot):99999}
 function pkTxt(r){var q=pickOf(r);return q?"Reserved: collect it "+(q.pdate?fmt(q.pdate):q.day)+" at "+q.slot:"Reserved: collect it at 2nd break today"}
-function dueOf(r){
-  var q=st(r)==="reserved"?pickOf(r):null;if(!q||!q.pdate||!r.day||!r.due)return r.due;
-  var loan=Math.round((new Date(r.due+"T12:00:00")-new Date(r.day+"T12:00:00"))/864e5),d=new Date(q.pdate+"T12:00:00");d.setDate(d.getDate()+loan);return iso(d)}
+function nextTerm(d){var y=d.getFullYear(),T=[[2,21],[5,21],[8,17],[10,15]];for(var i=0;i<4;i++){var t=new Date(y,T[i][0],T[i][1],12);if(t>=d)return t}return new Date(y+1,2,21,12)}
+function dueFor(pd,w){var b=new Date(pd+"T12:00:00"),d=new Date(b);d.setDate(d.getDate()+w*7);var t=nextTerm(b);return iso(d>t?t:d)}
+function dueOf(r){var q=st(r)==="reserved"?pickOf(r):null;if(!q||!q.pdate)return r.due;return dueFor(q.pdate,q.weeks||2)}
+function closedInfo(d){var md=(d.getMonth()+1)*100+d.getDate(),C=[[327,408,"9 April"],[626,721,"22 July"],[923,1006,"7 October"]];for(var i=0;i<3;i++){if(md>=C[i][0]&&md<=C[i][1])return C[i][2]}return(md>=1115||md<=114)?"15 January":""}
+function updDue(){var o=pickMap[$("pkd").value],w=+$("pkw").value;if(!o){$("pkDue").textContent="";return}var b=new Date(o.date+"T12:00:00"),d=new Date(b);d.setDate(d.getDate()+w*7);var capped=d>nextTerm(b);$("pkDue").textContent="Return it by "+fmt(dueFor(o.date,w))+(capped?" (the next term deadline)":"")}
+function recBooks(){
+  var ids={},h=[];try{h=JSON.parse(localStorage.getItem("shelf-hist")||"[]")}catch(e){}
+  h.forEach(function(i){ids[i]=1});
+  state.reservations.forEach(function(r){if(r.email===me.email)ids[r.bookId]=1});
+  (state.waits||[]).forEach(function(w){if(w.email===me.email)ids[w.bookId]=1});
+  var A={},G={};state.books.forEach(function(b){if(ids[b.id]){if(b.author)A[b.author.toLowerCase()]=1;if(b.genre)G[b.genre.toLowerCase()]=1}});
+  var sc=[];state.books.forEach(function(b){if(ids[b.id])return;var v=((b.author&&A[b.author.toLowerCase()])?2:0)+((b.genre&&G[b.genre.toLowerCase()])?1:0);if(v)sc.push({b:b,v:v,a:taken(b.id)?0:1})});
+  sc.sort(function(x,y){return y.v-x.v||y.a-x.a});
+  return sc.slice(0,9).map(function(x){return x.b})}
+function renderStats(){
+  var yr=new Date().getFullYear(),rows=state.stats,head='<h2 class="h2">Top 10 most reserved books of '+yr+'</h2>',unit=" reservations";
+  if(!rows){unit=" loans";head+='<p class="meta">Showing total loans for now.</p>';rows=state.books.filter(function(b){return b.loans}).sort(function(a,b){return b.loans-a.loans}).slice(0,10).map(function(b){return {title:b.title,author:b.author,n:b.loans}})}
+  $("stList").innerHTML=head+(rows.length?rows.map(function(r,i){return '<div class="res"><div><strong>'+(i+1)+'. '+esc(r.title)+'</strong> <span class="meta">by '+esc(r.author||"unknown")+'</span></div><div style="font-weight:600">'+r.n+unit+'</div></div>'}).join(""):'<p class="empty">No reservations yet this year.</p>')}
 var pickBook=null,pickMap={};
 function pickDays(){
   var n=new Date(),idx=(n.getDay()+6)%7,mins=n.getHours()*60+n.getMinutes(),S=[["10:35 am",635],["1:05 pm",785]],out=[];
-  function add(t,delta,all,nx){var d=new Date(n);d.setDate(n.getDate()+delta);var sl=S.filter(function(x){return all||delta>0||x[1]>mins});if(sl.length)out.push({day:DAYS[t],date:iso(d),slots:sl.map(function(x){return x[0]}),next:nx})}
+  function add(t,delta,all,nx){var d=new Date(n);d.setDate(n.getDate()+delta);if(closedInfo(d))return;var sl=S.filter(function(x){return all||delta>0||x[1]>mins});if(sl.length)out.push({day:DAYS[t],date:iso(d),slots:sl.map(function(x){return x[0]}),next:nx})}
   for(var t=0;t<4;t++){if(idx<4&&t<idx)continue;add(t,(t-idx+7)%7,false,idx>=4)}
   if(!out.length)for(var u=0;u<4;u++)add(u,(u-idx+7)%7||7,true,true);
   return out}
-function fillSlots(){var o=pickMap[$("pkd").value];$("pkt").innerHTML=o?o.slots.map(function(x){return "<option>"+x+"</option>"}).join(""):""}
+function fillSlots(){var o=pickMap[$("pkd").value];$("pkt").innerHTML=o?o.slots.map(function(x){return "<option>"+x+"</option>"}).join(""):"";updDue()}
 function openPick(id){
-  var b=state.books.filter(function(x){return x.id===id})[0],ds=pickDays();pickBook=id;pickMap={};
+  var cl=closedInfo(new Date());if(cl){toast("Reservations are closed right now. You can reserve again from "+cl+".");return}
+  var b=state.books.filter(function(x){return x.id===id})[0],ds=pickDays();if(!ds.length){toast("There are no open pick-up days at the moment. Please try again later.");return}pickBook=id;pickMap={};
   ds.forEach(function(d){pickMap[d.date]=d});
   $("pkd").innerHTML=ds.map(function(d){return '<option value="'+d.date+'">'+new Date(d.date+"T12:00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"short"})+'</option>'}).join("");
   fillSlots();$("pmBook").textContent=(b?b.title:"")+(ds[0]&&ds[0].next?" (pick-up is next week)":" (this week)");
@@ -256,7 +276,7 @@ async function confirmPick(){
   var id=pickBook,o=pickMap[$("pkd").value],slot=$("pkt").value,b=state.books.filter(function(x){return x.id===id})[0];
   if(!o||!id||!me)return;closePick();
   var rv=await act("reserve",{p_book:id,p_name:me.name});
-  if(rv){await act("set_pickup",{p_book:id,p_day:o.day,p_slot:slot,p_date:o.date});
+  if(rv){try{var hh=JSON.parse(localStorage.getItem("shelf-hist")||"[]");hh.push(id);localStorage.setItem("shelf-hist",JSON.stringify(hh.slice(-50)))}catch(e){}await act("set_pickup",{p_book:id,p_day:o.day,p_slot:slot,p_date:o.date,p_weeks:+$("pkw").value});
     var mr=state.reservations.filter(function(x){return x.bookId===id&&x.email===me.email})[0];
     note('You reserved "'+(b?b.title:"")+'". Please pick it up on '+o.day+' at '+slot+'.'+(mr?' Return it by '+fmt(dueOf(mr))+'.':'')+' You can see all your books under My books.')}}
 var lastScSig="";
@@ -368,11 +388,14 @@ function render(){
     var stat=count(b.id,"out")?"out":(count(b.id,"reserved")?"reserved":"available");
     return (b.title+" "+b.author+" "+b.genre+" "+b.num+" no."+b.num).toLowerCase().indexOf(q)>-1&&(!sf||sf===stat);
   });
+  var recList=(me&&!q&&!sf)?recBooks():[],rec={};
+  recList.forEach(function(b){rec[b.id]=1});
+  if(recList.length)shown=recList.concat(shown.filter(function(b){return !rec[b.id]}));
   $("grid").innerHTML=shown.length?shown.map(function(b){
     var left=taken(b.id)?0:1,o=count(b.id,"out"),od=state.reservations.filter(function(r){return r.bookId===b.id&&st(r)==="out"})[0];
     var holders=state.reservations.filter(function(r){return r.bookId===b.id}).map(function(r){return esc(r.name)+' ('+(st(r)==="out"?'has it':'reserved')+')'}).join(", ");
     return '<article class="book">'+(b.img?'<img class="cover" alt="Cover of '+esc(b.title)+'" src="'+b.img+'">':'<div class="spine" style="background:hsl('+hue(b.title)+',45%,45%)"></div>')+'<div class="body">'+
-    '<h3>'+esc(b.title)+'</h3><div class="meta">'+esc(b.author)+' · '+esc(b.genre)+' · No. '+esc(b.num)+(state.cond[b.id]?' · Condition '+state.cond[b.id]+'/10':'')+'</div>'+
+    '<h3>'+esc(b.title)+'</h3>'+(rec[b.id]?'<div class="meta" style="font-weight:600">Recommended for you</div>':'')+'<div class="meta">'+esc(b.author)+' · '+esc(b.genre)+' · No. '+esc(b.num)+(state.cond[b.id]?' · Condition '+state.cond[b.id]+'/10':'')+'</div>'+
     '<div class="avail'+(left?'':' out')+'">'+(left?'Available'+(admin&&b.returnedOn?' (returned '+esc(b.returnedOn)+')':''):(o?'Currently out':'Reserved already'))+'</div>'+
     (od&&od.due?'<div class="meta">Due back '+fmt(od.due)+'</div>':'')+
     (admin&&holders?'<div class="meta">Held by: '+holders+'</div>':'')+
@@ -434,6 +457,7 @@ function render(){
   $("acctOut").innerHTML=ao;
   renderDon();
   renderScores();
+  renderStats();
   renderMine();
 }
 
@@ -441,10 +465,11 @@ document.addEventListener("click",async function(e){
   var t=e.target;
   if(t.dataset.tab){
     document.querySelectorAll("nav button").forEach(function(b){b.setAttribute("aria-selected",b===t)});
-    ["catalog","mine","don","dadm","sc","add","ret","adm","res"].forEach(function(id){$(id).className=id===t.dataset.tab?"":"hide"});
+    ["catalog","mine","don","dadm","st","sc","add","ret","adm","res"].forEach(function(id){$(id).className=id===t.dataset.tab?"":"hide"});
     if(t.dataset.tab==="ret")$("retNum").focus();
     if(t.dataset.tab==="add"&&!$("num").value)$("num").value=nextNum();
   }
+  if(t.dataset.wait&&closedInfo(new Date())){toast("Reservations and waiting lists are closed right now. You can join again from "+closedInfo(new Date())+".");return}
   if(t.dataset.reserve){if(!me){need();return}openPick(+t.dataset.reserve)}
   if(t.dataset.wait){if(!me){need();return}await act("join_wait",{p_book:+t.dataset.wait,p_name:me.name},"You are on the waiting list")}
   if(t.dataset.unwait&&me){await act("leave_wait",{p_book:+t.dataset.unwait},"Removed from the waiting list")}
@@ -588,7 +613,7 @@ $("dGo").addEventListener("click",async function(){
   var r=await act("submit_donation",{p_name:me.name,p_title:t,p_author:$("da").value.trim(),p_condition:$("dc").value,p_day:$("dd").value,p_slot:$("dtm").value},"Donation sent. The admins have been notified.");
   if(r){$("dt").value="";$("da").value=""}
 });
-$("pkd").addEventListener("change",fillSlots);$("pkOk").addEventListener("click",confirmPick);$("pkNo").addEventListener("click",closePick);
+$("pkd").addEventListener("change",fillSlots);$("pkw").addEventListener("change",updDue);$("pkOk").addEventListener("click",confirmPick);$("pkNo").addEventListener("click",closePick);
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&pickBook)closePick()});
 applyPw();renderMe();render();gate();
 sb.auth.onAuthStateChange(function(ev,sess){
