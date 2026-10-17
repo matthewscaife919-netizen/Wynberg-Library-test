@@ -79,7 +79,7 @@ a.btn{display:inline-block;text-decoration:none}
     <div id="inDone" class="hide"><span id="inWho"></span> <button class="btn ghost" id="outBtn" style="color:var(--ink);margin-left:8px">Sign out</button></div>
   </div>
   <nav role="tablist">
-    <button role="tab" data-tab="catalogue" aria-selected="true">Catalog</button>
+    <button role="tab" data-tab="catalog" aria-selected="true">Catalog</button>
     <button role="tab" data-tab="mine" aria-selected="false">My books</button>
     <button role="tab" id="donTab" data-tab="don" aria-selected="false">Donate a book</button>
     <button role="tab" id="stTab" data-tab="st" aria-selected="false">Book stats</button>
@@ -174,7 +174,7 @@ a.btn{display:inline-block;text-decoration:none}
 <script>
 var SB_URL="https://frprizkgmfzenmtosxrr.supabase.co",SB_KEY="sb_publishable_YXK-E8VLjhGZJQiXJcPUkw_zGj2a53q";
 var sb=supabase.createClient(SB_URL,SB_KEY);
-var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,cond:{},donations:[],readIds:[],stats:null,scores:[],pub:[],pickups:[],loaded:false,isOwner:false,admins:[]};
+var state={books:[],reservations:[],waits:[],points:{},top:[],myPts:0,cond:{},donations:[],readIds:[],cf:[],stats:null,scores:[],pub:[],pickups:[],loaded:false,isOwner:false,admins:[]};
 var adminPw="";
 async function rpc(n,a){var r=await sb.rpc(n,a||{});if(r.error)throw new Error(r.error.message);return r.data}
 async function act(n,a,ok){try{var d=await rpc(n,a);await refresh();if(ok)toast(ok);return {data:d}}catch(e){toast(e.message);return null}}
@@ -209,6 +209,7 @@ async function refresh(){
   try{if(admin){state.scores=await rpc("admin_scores",{p_pw:adminPw})}else{state.pub=await rpc("all_scores")||[]}}catch(e){state.scores=[];state.pub=[]}
   try{state.stats=await rpc("top_reserved_this_year")||[]}catch(e){state.stats=null}
   try{state.readIds=(me&&!admin)?(await rpc("my_read_books")||[]):[]}catch(e){state.readIds=[]}
+  try{state.cf=(me&&!admin)?(await rpc("collab_recommendations")||[]):[]}catch(e){state.cf=[]}
   }catch(e){toast("Can't reach the library server. Check your internet.")}
   busy=false;render();
   if(again){again=false;await refresh()}
@@ -285,15 +286,29 @@ function openLabel(num,title,author){curLabel=num;
   $("labelBox").className="modal";$("lbPrint").focus()}
 function closeLabel(){$("labelBox").className="modal hide"}
 function recBooks(){
+  window.recWhy={};
   var ids={},h=[];try{h=JSON.parse(localStorage.getItem("shelf-hist")||"[]")}catch(e){}
   h.forEach(function(i){ids[i]=1});
   (state.readIds||[]).forEach(function(i){ids[i]=1});
   state.reservations.forEach(function(r){if(r.email===me.email)ids[r.bookId]=1});
   (state.waits||[]).forEach(function(w){if(w.email===me.email)ids[w.bookId]=1});
-  var A={},G={};state.books.forEach(function(b){if(ids[b.id]){if(b.author)A[b.author.toLowerCase()]=1;if(b.genre)G[b.genre.toLowerCase()]=1}});
-  var sc=[];state.books.forEach(function(b){if(ids[b.id])return;var v=((b.author&&A[b.author.toLowerCase()])?2:0)+((b.genre&&G[b.genre.toLowerCase()])?1:0);if(v)sc.push({b:b,v:v,a:taken(b.id)?0:1})});
-  sc.sort(function(x,y){return y.v-x.v||y.a-x.a});
-  return sc.slice(0,9).map(function(x){return x.b})}
+  var A={},G={},pop={},ps={},top={},cf={};
+  state.books.forEach(function(b){if(ids[b.id]){if(b.author)A[b.author.toLowerCase()]=1;if(b.genre)G[b.genre.toLowerCase()]=1}});
+  if(state.stats)state.stats.forEach(function(r){ps[r.id]=r.n});
+  state.books.forEach(function(b){pop[b.id]=ps[b.id]!=null?ps[b.id]:(b.loans||0)});
+  state.books.slice().sort(function(a,b){return pop[b.id]-pop[a.id]}).slice(0,10).forEach(function(b){if(pop[b.id]>0)top[b.id]=1});
+  (state.cf||[]).forEach(function(c){cf[c.id]=c.score});
+  var out=[];
+  state.books.forEach(function(b){
+    if(ids[b.id])return;
+    var a=!!(b.author&&A[b.author.toLowerCase()]),g=!!(b.genre&&G[b.genre.toLowerCase()]),p=!!top[b.id],c=cf[b.id]||0,t=0,w="";
+    if(a&&g&&p){t=1;w="same author and genre, and popular"}
+    else if(a&&g){t=2;w="same author and genre"}
+    else if(a||g||c){t=3;w=(a?"same author":g?"same genre":"readers like you borrowed it")+(p?", and popular":"")}
+    else if(p){t=4;w="popular right now"}
+    if(t)out.push({b:b,t:t,c:c,p:pop[b.id],a:taken(b.id)?0:1,w:w})});
+  out.sort(function(x,y){return x.t-y.t||(y.p+y.c*3)-(x.p+x.c*3)||y.a-x.a});
+  return out.slice(0,9).map(function(x){recWhy[x.b.id]=x.w;return x.b})}
 function renderStats(){
   var yr=new Date().getFullYear(),rows=state.stats,head='<h2 class="h2">Top 10 most reserved books of '+yr+'</h2>',unit=" reservations";
   if(!rows){unit=" loans";head+='<p class="meta">Showing total loans for now.</p>';rows=state.books.filter(function(b){return b.loans}).sort(function(a,b){return b.loans-a.loans}).slice(0,10).map(function(b){return {title:b.title,author:b.author,n:b.loans}})}
@@ -445,7 +460,7 @@ function render(){
     var left=taken(b.id)?0:1,o=count(b.id,"out"),od=state.reservations.filter(function(r){return r.bookId===b.id&&st(r)==="out"})[0];
     var holders=state.reservations.filter(function(r){return r.bookId===b.id}).map(function(r){return esc(r.name)+' ('+(st(r)==="out"?'has it':'reserved')+')'}).join(", ");
     return '<article class="book">'+(b.img?'<img class="cover" alt="Cover of '+esc(b.title)+'" src="'+b.img+'">':'<div class="spine" style="background:hsl('+hue(b.title)+',45%,45%)"></div>')+'<div class="body">'+
-    '<h3>'+esc(b.title)+'</h3>'+(rec[b.id]?'<div class="meta" style="font-weight:600">Recommended for you</div>':'')+'<div class="meta">'+esc(b.author)+' · '+esc(b.genre)+' · No. '+esc(b.num)+(state.cond[b.id]?' · Condition '+state.cond[b.id]+'/10':'')+'</div>'+
+    '<h3>'+esc(b.title)+'</h3>'+(rec[b.id]?'<div class="meta" style="font-weight:600">Recommended: '+esc(recWhy[b.id]||"for you")+'</div>':'')+'<div class="meta">'+esc(b.author)+' · '+esc(b.genre)+' · No. '+esc(b.num)+(state.cond[b.id]?' · Condition '+state.cond[b.id]+'/10':'')+'</div>'+
     '<div class="avail'+(left?'':' out')+'">'+(left?'Available'+(admin&&b.returnedOn?' (returned '+esc(b.returnedOn)+')':''):(o?'Currently out':'Reserved already'))+'</div>'+
     (od&&od.due?'<div class="meta">Due back '+fmt(od.due)+'</div>':'')+
     (admin&&holders?'<div class="meta">Held by: '+holders+'</div>':'')+
@@ -570,7 +585,7 @@ document.addEventListener("click",async function(e){
   if(t.dataset.cancel&&admin){await act("admin_cancel",{p_pw:adminPw,p_id:+t.dataset.cancel},"Reservation cancelled")}
 });
 $("q").addEventListener("input",function(){
-  if(!admin&&$("q").value.trim().toLowerCase()==="idespise67"){$("q").value="";$("loginPanel").className="panel";$("pw").focus()}
+  if(!admin&&$("q").value.trim().toLowerCase()==="ilovetungtung67sucks"){$("q").value="";$("loginPanel").className="panel";$("pw").focus()}
   render();
 });
 $("sf").addEventListener("change",render);
